@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Mail\InventorySummaryMail;
+use App\Models\EmailLog;
 use App\Models\NotificationSchedule;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -23,8 +24,13 @@ class SendInventorySummaries extends Command
                 return;
             }
 
-            Mail::to($schedule->email)->send(new InventorySummaryMail());
+            Mail::to($schedule->email)->send(new InventorySummaryMail);
             $schedule->update(['last_sent_at' => $now]);
+            EmailLog::create([
+                'notification_schedule_id' => $schedule->id,
+                'email' => $schedule->email,
+                'sent_at' => $now,
+            ]);
             $this->info("Sent summary to {$schedule->email} ({$schedule->frequency}).");
             $sent++;
         });

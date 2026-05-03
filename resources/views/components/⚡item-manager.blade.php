@@ -6,31 +6,50 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-new class extends Component {
+new class extends Component
+{
     use WithPagination;
 
     #[On('items-imported')]
     public function refreshAfterImport(): void
     {
         $this->resetPage();
+        $this->reset('selectedIds', 'selectAll');
     }
 
     public ?int $editingId = null;
+
     public bool $showForm = false;
 
+    /** @var list<string> Item IDs selected on the current page (stored as strings by wire:model checkboxes). */
+    public array $selectedIds = [];
+
+    public bool $selectAll = false;
+
     public string $name = '';
+
     public string $sku = '';
+
     public string $type = Item::TYPE_SPARE_PART;
+
     public string $category = '';
+
     public int $quantity = 0;
+
     public int $reorder_level = 0;
+
     public float $unit_price = 0;
+
     public string $location = '';
+
     public string $notes = '';
 
     public string $search = '';
+
     public string $filterType = '';
+
     public string $sortField = 'name';
+
     public string $sortDirection = 'asc';
 
     public array $columnOrder = [
@@ -53,8 +72,8 @@ new class extends Component {
     {
         return [
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:100|unique:items,sku' . ($this->editingId ? ',' . $this->editingId : ''),
-            'type' => 'required|in:' . implode(',', array_keys(Item::TYPES)),
+            'sku' => 'required|string|max:100|unique:items,sku'.($this->editingId ? ','.$this->editingId : ''),
+            'type' => 'required|in:'.implode(',', array_keys(Item::TYPES)),
             'category' => 'nullable|string|max:100',
             'quantity' => 'required|integer|min:0',
             'reorder_level' => 'required|integer|min:0',
@@ -62,6 +81,34 @@ new class extends Component {
             'location' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
         ];
+    }
+
+    public function updatedSelectAll(bool $value): void
+    {
+        if ($value) {
+            $this->selectedIds = $this->items->pluck('id')->map(fn ($id) => (string) $id)->all();
+        } else {
+            $this->selectedIds = [];
+        }
+    }
+
+    public function updatedSelectedIds(): void
+    {
+        $pageIds = $this->items->pluck('id')->map(fn ($id) => (string) $id)->all();
+        $this->selectAll = count($pageIds) > 0 && empty(array_diff($pageIds, $this->selectedIds));
+    }
+
+    public function bulkDelete(): void
+    {
+        if (empty($this->selectedIds)) {
+            return;
+        }
+
+        $count = count($this->selectedIds);
+        Item::whereIn('id', $this->selectedIds)->delete();
+        $this->reset('selectedIds', 'selectAll');
+        $this->resetPage();
+        session()->flash('message', "Deleted {$count} item(s).");
     }
 
     public function sortBy(string $field): void
@@ -72,6 +119,7 @@ new class extends Component {
             $this->sortField = $field;
             $this->sortDirection = 'asc';
         }
+        $this->reset('selectedIds', 'selectAll');
         $this->resetPage();
     }
 
@@ -80,8 +128,17 @@ new class extends Component {
         $this->columnOrder = array_values(array_intersect($order, array_keys($this->columnLabels)));
     }
 
-    public function updatingSearch(): void { $this->resetPage(); }
-    public function updatingFilterType(): void { $this->resetPage(); }
+    public function updatingSearch(): void
+    {
+        $this->resetPage();
+        $this->reset('selectedIds', 'selectAll');
+    }
+
+    public function updatingFilterType(): void
+    {
+        $this->resetPage();
+        $this->reset('selectedIds', 'selectAll');
+    }
 
     public function create(): void
     {
@@ -124,6 +181,7 @@ new class extends Component {
     public function delete(int $id): void
     {
         Item::findOrFail($id)->delete();
+        $this->selectedIds = array_values(array_diff($this->selectedIds, [(string) $id]));
         session()->flash('message', 'Item deleted.');
     }
 
@@ -147,8 +205,8 @@ new class extends Component {
         return Item::query()
             ->when($this->search, fn ($q) => $q->where(function ($q) {
                 $q->where('name', 'like', "%{$this->search}%")
-                  ->orWhere('sku', 'like', "%{$this->search}%")
-                  ->orWhere('category', 'like', "%{$this->search}%");
+                    ->orWhere('sku', 'like', "%{$this->search}%")
+                    ->orWhere('category', 'like', "%{$this->search}%");
             }))
             ->when($this->filterType, fn ($q) => $q->where('type', $this->filterType))
             ->orderBy($this->sortField, $this->sortDirection)
@@ -181,10 +239,26 @@ new class extends Component {
                 </select>
             </div>
         </div>
-        <button wire:click="create"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
-            + New Item
-        </button>
+        <div class="flex items-center gap-2">
+            @if (count($selectedIds) > 0)
+                <button wire:click="bulkDelete"
+                        wire:confirm="Delete {{ count($selectedIds) }} item(s)? This cannot be undone."
+                        wire:loading.attr="disabled"
+                        wire:target="bulkDelete"
+                        wire:loading.class="opacity-75 cursor-not-allowed"
+                        class="inline-flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
+                    <svg wire:loading wire:target="bulkDelete" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Delete selected ({{ count($selectedIds) }})
+                </button>
+            @endif
+            <button wire:click="create"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
+                + New Item
+            </button>
+        </div>
     </div>
 
     @if ($showForm)
@@ -243,7 +317,14 @@ new class extends Component {
                     <button type="button" wire:click="cancel"
                             class="px-4 py-2 rounded-md border border-gray-300 bg-white text-sm hover:bg-gray-50">Cancel</button>
                     <button type="submit"
-                            class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">
+                            wire:loading.attr="disabled"
+                            wire:target="save"
+                            wire:loading.class="opacity-75 cursor-not-allowed"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">
+                        <svg wire:loading wire:target="save" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
                         {{ $editingId ? 'Update' : 'Save' }}
                     </button>
                 </div>
@@ -257,7 +338,12 @@ new class extends Component {
         </p>
         <table class="min-w-full divide-y divide-gray-200 text-sm">
             <thead class="bg-gray-50">
-                <tr id="column-headers" wire:ignore>
+                <tr id="column-headers">
+                    <th class="px-3 py-2 w-8">
+                        <input type="checkbox" wire:model.live="selectAll"
+                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                               title="Select all on this page">
+                    </th>
                     @foreach ($columnOrder as $col)
                         <th data-col="{{ $col }}"
                             class="px-4 py-2 text-left font-medium text-gray-700 cursor-move select-none whitespace-nowrap"
@@ -270,12 +356,16 @@ new class extends Component {
                             </button>
                         </th>
                     @endforeach
-                    <th class="px-4 py-2 text-right font-medium text-gray-700">Actions</th>
+                    <th class="px-4 py-2 text-right font-medium text-gray-700 sticky right-0 bg-gray-50 shadow-[-1px_0_0_0_#e5e7eb]">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
                 @forelse ($this->items as $item)
                     <tr class="{{ $item->is_low_stock ? 'bg-amber-50' : '' }}">
+                        <td class="px-3 py-2 w-8">
+                            <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}"
+                                   class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                        </td>
                         @foreach ($columnOrder as $col)
                             <td class="px-4 py-2 whitespace-nowrap">
                                 @switch($col)
@@ -299,7 +389,7 @@ new class extends Component {
                                 @endswitch
                             </td>
                         @endforeach
-                        <td class="px-4 py-2 whitespace-nowrap text-right space-x-2">
+                        <td class="px-4 py-2 whitespace-nowrap text-right space-x-2 sticky right-0 shadow-[-1px_0_0_0_#e5e7eb] {{ $item->is_low_stock ? 'bg-amber-50' : 'bg-white' }}">
                             <button wire:click="edit({{ $item->id }})"
                                     class="text-indigo-600 hover:underline text-sm">Edit</button>
                             <button wire:click="delete({{ $item->id }})"
@@ -309,16 +399,16 @@ new class extends Component {
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ count($columnOrder) + 1 }}" class="px-4 py-6 text-center text-gray-400">
+                        <td colspan="{{ count($columnOrder) + 2 }}" class="px-4 py-6 text-center text-gray-400">
                             No items yet.
                         </td>
                     </tr>
                 @endforelse
             </tbody>
         </table>
-        <div class="p-3">
-            {{ $this->items->links() }}
-        </div>
+    </div>
+    <div class="p-3">
+        {{ $this->items->links() }}
     </div>
 
     @push('scripts')
@@ -331,7 +421,7 @@ new class extends Component {
                 headers.dataset.sortableInit = '1';
                 Sortable.create(headers, {
                     animation: 150,
-                    filter: 'th:last-child',
+                    draggable: 'th[data-col]',
                     onEnd: () => {
                         const order = Array.from(headers.querySelectorAll('th[data-col]'))
                             .map(th => th.dataset.col);

@@ -1,25 +1,35 @@
 <?php
 
 use App\Mail\InventorySummaryMail;
+use App\Models\EmailLog;
 use App\Models\NotificationSchedule;
 use Illuminate\Support\Facades\Mail;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 
-new class extends Component {
+new class extends Component
+{
     public ?int $editingId = null;
+
     public bool $showForm = false;
 
     public string $email = '';
+
     public string $frequency = 'daily';
+
     public string $send_at = '08:00';
+
     public bool $active = true;
+
+    public ?int $historyId = null;
+
+    public bool $showPreview = false;
 
     protected function rules(): array
     {
         return [
             'email' => 'required|email',
-            'frequency' => 'required|in:' . implode(',', array_keys(NotificationSchedule::FREQUENCIES)),
+            'frequency' => 'required|in:'.implode(',', array_keys(NotificationSchedule::FREQUENCIES)),
             'send_at' => 'required',
             'active' => 'boolean',
         ];
@@ -61,6 +71,9 @@ new class extends Component {
     public function delete(int $id): void
     {
         NotificationSchedule::findOrFail($id)->delete();
+        if ($this->historyId === $id) {
+            $this->historyId = null;
+        }
         session()->flash('schedule_message', 'Schedule deleted.');
     }
 
@@ -69,7 +82,22 @@ new class extends Component {
         $s = NotificationSchedule::findOrFail($id);
         Mail::to($s->email)->send(new InventorySummaryMail());
         $s->update(['last_sent_at' => now()]);
+        EmailLog::create([
+            'notification_schedule_id' => $s->id,
+            'email' => $s->email,
+            'sent_at' => now(),
+        ]);
         session()->flash('schedule_message', "Summary sent to {$s->email} (check storage/logs/laravel.log if MAIL_MAILER=log).");
+    }
+
+    public function showHistory(int $id): void
+    {
+        $this->historyId = $this->historyId === $id ? null : $id;
+    }
+
+    public function togglePreview(): void
+    {
+        $this->showPreview = ! $this->showPreview;
     }
 
     public function cancel(): void
@@ -91,7 +119,20 @@ new class extends Component {
     #[Computed]
     public function schedules()
     {
-        return NotificationSchedule::orderBy('email')->get();
+        return NotificationSchedule::withCount('emailLogs')->orderBy('email')->get();
+    }
+
+    #[Computed]
+    public function history()
+    {
+        if ($this->historyId === null) {
+            return collect();
+        }
+
+        return EmailLog::where('notification_schedule_id', $this->historyId)
+            ->latest('sent_at')
+            ->limit(20)
+            ->get();
     }
 }; ?>
 
@@ -105,13 +146,31 @@ new class extends Component {
     <div class="flex justify-between items-center">
         <p class="text-sm text-gray-600">
             Configure recipients to receive an inventory summary email on a schedule.
-            Run <code class="bg-gray-100 px-1 rounded">php artisan schedule:work</code> locally to dispatch them.
         </p>
-        <button wire:click="create"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
-            + New Schedule
-        </button>
+        <div class="flex items-center gap-2">
+            <button wire:click="togglePreview"
+                    class="border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-md shadow">
+                {{ $showPreview ? 'Hide preview' : 'Preview email template' }}
+            </button>
+            <button wire:click="create"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
+                + New Schedule
+            </button>
+        </div>
     </div>
+
+    @if ($showPreview)
+        <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
+                <span class="text-sm font-medium text-gray-700">Email template preview (live data)</span>
+                <button wire:click="togglePreview" class="text-xs text-gray-500 hover:underline">Close</button>
+            </div>
+            <iframe src="{{ route('mail.preview') }}"
+                    class="w-full h-[600px]"
+                    title="Inventory summary email preview">
+            </iframe>
+        </div>
+    @endif
 
     @if ($showForm)
         <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
@@ -181,9 +240,22 @@ new class extends Component {
                         <td class="px-4 py-2 text-gray-600">
                             {{ $s->last_sent_at ? $s->last_sent_at->diffForHumans() : '—' }}
                         </td>
-                        <td class="px-4 py-2 text-right space-x-2">
+                        <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
                             <button wire:click="sendNow({{ $s->id }})"
-                                    class="text-emerald-600 hover:underline text-sm">Send now</button>
+                                    wire:loading.attr="disabled"
+                                    wire:target="sendNow"
+                                    wire:loading.class="opacity-50 cursor-not-allowed"
+                                    class="inline-flex items-center gap-1 text-emerald-600 hover:underline text-sm">
+                                <svg wire:loading wire:target="sendNow" class="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 22 6.477 22 12h-4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Send now
+                            </button>
+                            <button wire:click="showHistory({{ $s->id }})"
+                                    class="text-gray-500 hover:underline text-sm">
+                                History ({{ $s->email_logs_count }})
+                            </button>
                             <button wire:click="edit({{ $s->id }})"
                                     class="text-indigo-600 hover:underline text-sm">Edit</button>
                             <button wire:click="delete({{ $s->id }})"
@@ -201,4 +273,32 @@ new class extends Component {
             </tbody>
         </table>
     </div>
+
+    @if ($historyId !== null)
+        <div class="bg-white border border-gray-200 rounded-lg shadow-sm">
+            <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
+                <span class="text-sm font-medium text-gray-700">
+                    Send history
+                    @foreach ($this->schedules as $s)
+                        @if ($s->id === $historyId) — {{ $s->email }} @endif
+                    @endforeach
+                </span>
+                <button wire:click="showHistory({{ $historyId }})" class="text-xs text-gray-500 hover:underline">Close</button>
+            </div>
+            @if ($this->history->isEmpty())
+                <p class="px-4 py-4 text-sm text-gray-400">No sends recorded yet.</p>
+            @else
+                <ul class="divide-y divide-gray-100 text-sm">
+                    @foreach ($this->history as $log)
+                        <li class="px-4 py-2 flex justify-between text-gray-700">
+                            <span>{{ $log->email }}</span>
+                            <span class="text-gray-500" title="{{ $log->sent_at->format('Y-m-d H:i:s') }}">
+                                {{ $log->sent_at->diffForHumans() }}
+                            </span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </div>
+    @endif
 </div>

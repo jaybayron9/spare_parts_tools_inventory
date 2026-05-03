@@ -84,4 +84,65 @@ class ImportItemsTest extends TestCase
             ->set('file', $bad)
             ->assertHasErrors(['file' => 'mimes']);
     }
+
+    public function test_all_ready_rows_are_pre_selected_after_upload(): void
+    {
+        $component = Livewire::test('import-items')
+            ->call('toggle')
+            ->set('file', $this->fixture());
+
+        $preview = $component->get('preview');
+        $selectedRows = $component->get('selectedRows');
+
+        $readyIndices = array_keys(array_filter($preview, fn ($p) => $p['attributes'] !== null));
+        $this->assertCount(count($readyIndices), $selectedRows);
+    }
+
+    public function test_deselecting_all_rows_imports_nothing(): void
+    {
+        Livewire::test('import-items')
+            ->call('toggle')
+            ->set('file', $this->fixture())
+            ->call('deselectAllRows')
+            ->call('confirm')
+            ->assertSet('insertedCount', 0)
+            ->assertSet('updatedCount', 0);
+
+        $this->assertSame(0, Item::count());
+    }
+
+    public function test_partial_selection_imports_only_checked_rows(): void
+    {
+        $component = Livewire::test('import-items')
+            ->call('toggle')
+            ->set('file', $this->fixture());
+
+        $preview = $component->get('preview');
+        $readyIndices = array_keys(array_filter($preview, fn ($p) => $p['attributes'] !== null));
+
+        // Select only the first 2 ready rows.
+        $twoIndices = array_map('strval', array_slice($readyIndices, 0, 2));
+
+        $component
+            ->set('selectedRows', $twoIndices)
+            ->call('confirm');
+
+        $this->assertSame(2, Item::count());
+    }
+
+    public function test_deselect_all_then_select_all_restores_full_selection(): void
+    {
+        $component = Livewire::test('import-items')
+            ->call('toggle')
+            ->set('file', $this->fixture())
+            ->call('deselectAllRows')
+            ->assertSet('selectedRows', [])
+            ->call('selectAllRows');
+
+        $preview = $component->get('preview');
+        $selectedRows = $component->get('selectedRows');
+        $readyCount = count(array_filter($preview, fn ($p) => $p['attributes'] !== null));
+
+        $this->assertCount($readyCount, $selectedRows);
+    }
 }
