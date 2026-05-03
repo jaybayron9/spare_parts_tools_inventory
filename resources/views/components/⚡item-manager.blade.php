@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Item;
+use App\Models\ItemType;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -17,6 +18,15 @@ new class extends Component
         $this->reset('selectedIds', 'selectAll');
     }
 
+    #[On('typesUpdated')]
+    public function onTypesUpdated(): void
+    {
+        if ($this->filterType && ! ItemType::where('id', $this->filterType)->exists()) {
+            $this->filterType = '';
+        }
+        $this->resetPage();
+    }
+
     public ?int $editingId = null;
 
     public bool $showForm = false;
@@ -26,11 +36,13 @@ new class extends Component
 
     public bool $selectAll = false;
 
+    public bool $showTypeManager = false;
+
     public string $name = '';
 
     public string $sku = '';
 
-    public string $type = Item::TYPE_SPARE_PART;
+    public int $item_type_id = 0;
 
     public string $category = '';
 
@@ -73,7 +85,7 @@ new class extends Component
         return [
             'name' => 'required|string|max:255',
             'sku' => 'required|string|max:100|unique:items,sku'.($this->editingId ? ','.$this->editingId : ''),
-            'type' => 'required|in:'.implode(',', array_keys(Item::TYPES)),
+            'item_type_id' => 'required|exists:item_types,id',
             'category' => 'nullable|string|max:100',
             'quantity' => 'required|integer|min:0',
             'reorder_level' => 'required|integer|min:0',
@@ -81,6 +93,11 @@ new class extends Component
             'location' => 'nullable|string|max:100',
             'notes' => 'nullable|string',
         ];
+    }
+
+    public function toggleTypeManager(): void
+    {
+        $this->showTypeManager = ! $this->showTypeManager;
     }
 
     public function updatedSelectAll(bool $value): void
@@ -152,7 +169,7 @@ new class extends Component
         $this->editingId = $item->id;
         $this->name = $item->name;
         $this->sku = $item->sku;
-        $this->type = $item->type;
+        $this->item_type_id = $item->item_type_id;
         $this->category = $item->category ?? '';
         $this->quantity = $item->quantity;
         $this->reorder_level = $item->reorder_level;
@@ -195,7 +212,7 @@ new class extends Component
     {
         $this->editingId = null;
         $this->reset(['name', 'sku', 'category', 'quantity', 'reorder_level', 'unit_price', 'location', 'notes']);
-        $this->type = Item::TYPE_SPARE_PART;
+        $this->item_type_id = ItemType::orderBy('id')->value('id') ?? 0;
         $this->resetValidation();
     }
 
@@ -208,7 +225,7 @@ new class extends Component
                     ->orWhere('sku', 'like', "%{$this->search}%")
                     ->orWhere('category', 'like', "%{$this->search}%");
             }))
-            ->when($this->filterType, fn ($q) => $q->where('type', $this->filterType))
+            ->when($this->filterType, fn ($q) => $q->where('item_type_id', $this->filterType))
             ->orderBy($this->sortField, $this->sortDirection)
             ->paginate(10);
     }
@@ -229,12 +246,18 @@ new class extends Component
                        class="mt-1 block w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-600">Filter by Type</label>
+                <div class="flex items-baseline gap-2">
+                    <label class="block text-xs font-medium text-gray-600">Filter by Type</label>
+                    <button type="button" wire:click="toggleTypeManager"
+                            class="text-xs text-indigo-600 hover:underline">
+                        {{ $showTypeManager ? 'Hide' : 'Manage' }}
+                    </button>
+                </div>
                 <select wire:model.live="filterType"
                         class="mt-1 block w-48 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
                     <option value="">All</option>
-                    @foreach (\App\Models\Item::TYPES as $val => $label)
-                        <option value="{{ $val }}">{{ $label }}</option>
+                    @foreach (\App\Models\ItemType::orderBy('label')->get() as $t)
+                        <option value="{{ $t->id }}">{{ $t->label }}</option>
                     @endforeach
                 </select>
             </div>
@@ -261,6 +284,10 @@ new class extends Component
         </div>
     </div>
 
+    @if ($showTypeManager)
+        <livewire:item-type-manager />
+    @endif
+
     @if ($showForm)
         <div class="bg-white border border-gray-200 rounded-lg p-5 shadow-sm">
             <h3 class="text-lg font-semibold mb-4">
@@ -279,12 +306,12 @@ new class extends Component
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Type *</label>
-                    <select wire:model="type" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 sm:text-sm">
-                        @foreach (\App\Models\Item::TYPES as $val => $label)
-                            <option value="{{ $val }}">{{ $label }}</option>
+                    <select wire:model="item_type_id" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 sm:text-sm">
+                        @foreach (\App\Models\ItemType::orderBy('label')->get() as $t)
+                            <option value="{{ $t->id }}">{{ $t->label }}</option>
                         @endforeach
                     </select>
-                    @error('type') <span class="text-red-600 text-xs">{{ $message }}</span> @enderror
+                    @error('item_type_id') <span class="text-red-600 text-xs">{{ $message }}</span> @enderror
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Category</label>
@@ -370,8 +397,7 @@ new class extends Component
                             <td class="px-4 py-2 whitespace-nowrap">
                                 @switch($col)
                                     @case('type')
-                                        <span class="inline-block rounded-full px-2 py-0.5 text-xs
-                                            {{ $item->type === 'tool' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800' }}">
+                                        <span class="inline-block rounded-full px-2 py-0.5 text-xs bg-emerald-100 text-emerald-800">
                                             {{ $item->type_label }}
                                         </span>
                                         @break

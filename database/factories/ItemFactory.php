@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Item;
+use App\Models\ItemType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -25,7 +26,7 @@ class ItemFactory extends Factory
             'uom' => $this->faker->randomElement(['Pcs', 'Set', 'Box']),
             'install_remarks' => null,
             'sku' => strtoupper($this->faker->bothify('???######')),
-            'type' => Item::TYPE_SPARE_PART,
+            'item_type_id' => ItemType::inRandomOrder()->first()?->id ?? ItemType::factory()->create()->id,
             'category' => $this->faker->word(),
             'quantity' => $this->faker->numberBetween(0, 50),
             'reorder_level' => $this->faker->numberBetween(0, 10),

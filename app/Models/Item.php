@@ -4,19 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Item extends Model
 {
     use HasFactory;
-
-    public const TYPE_SPARE_PART = 'spare_part';
-
-    public const TYPE_TOOL = 'tool';
-
-    public const TYPES = [
-        self::TYPE_SPARE_PART => 'Spare Part',
-        self::TYPE_TOOL => 'Tool',
-    ];
 
     protected $fillable = [
         'name',
@@ -28,7 +20,7 @@ class Item extends Model
         'uom',
         'install_remarks',
         'sku',
-        'type',
+        'item_type_id',
         'category',
         'quantity',
         'reorder_level',
@@ -52,9 +44,14 @@ class Item extends Model
         'eul_yrs' => 'integer',
     ];
 
+    public function itemType(): BelongsTo
+    {
+        return $this->belongsTo(ItemType::class);
+    }
+
     public function getTypeLabelAttribute(): string
     {
-        return self::TYPES[$this->type] ?? $this->type;
+        return $this->itemType?->label ?? '—';
     }
 
     public function getIsLowStockAttribute(): bool

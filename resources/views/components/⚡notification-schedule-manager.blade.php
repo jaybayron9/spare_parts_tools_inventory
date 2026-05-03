@@ -290,11 +290,15 @@ new class extends Component
             @else
                 <ul class="divide-y divide-gray-100 text-sm">
                     @foreach ($this->history as $log)
-                        <li class="px-4 py-2 flex justify-between text-gray-700">
+                        <li class="px-4 py-2 flex justify-between items-center text-gray-700">
                             <span>{{ $log->email }}</span>
-                            <span class="text-gray-500" title="{{ $log->sent_at->format('Y-m-d H:i:s') }}">
-                                {{ $log->sent_at->diffForHumans() }}
-                            </span>
+                            <div class="flex items-center gap-4">
+                                <a href="{{ route('mail.preview') }}" target="_blank"
+                                   class="text-indigo-600 hover:underline text-xs">Preview email</a>
+                                <span class="text-gray-500" title="{{ $log->sent_at->format('Y-m-d H:i:s') }}">
+                                    {{ $log->sent_at->diffForHumans() }}
+                                </span>
+                            </div>
                         </li>
                     @endforeach
                 </ul>

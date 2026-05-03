@@ -2,7 +2,7 @@
 
 namespace App\Imports;
 
-use App\Models\Item;
+use App\Models\ItemType;
 use Carbon\Carbon;
 use DateTimeInterface;
 
@@ -67,7 +67,8 @@ class ItemRowMapper
             'uom' => $this->str($row['uom'] ?? null),
             'install_remarks' => $this->str($row['install_remarks'] ?? null),
             'sku' => $sku,
-            'type' => Item::TYPE_SPARE_PART,
+            'item_type_id' => ItemType::where('label', 'Spare Part')->value('id')
+                ?? ItemType::orderBy('id')->value('id'),
             'category' => $equipmentSystem,
             'quantity' => $quantity,
             'reorder_level' => $reorder,
