@@ -7,11 +7,13 @@ use OpenSpout\Reader\XLSX\Reader;
 class ItemsXlsxParser
 {
     /**
-     * Map of expected xlsx header text → canonical key used by ItemRowMapper.
+     * Map of recognized xlsx header text → canonical key used by ItemRowMapper.
+     * Covers both the original procurement format and the app's own export format.
      *
      * @var array<string, string>
      */
     public const HEADERS = [
+        // Original procurement format
         'SPARE PARTS DESCRIPTION' => 'description',
         'Vendor' => 'vendor',
         'Equipment/System' => 'equipment_system',
@@ -30,10 +32,33 @@ class ItemsXlsxParser
         'PARTS EUL (YR)' => 'eul_yrs',
         'FREQUENCY OF REPLACEMENT' => 'replacement_frequency',
         'REMARKS' => 'remarks',
+
+        // App export format
+        'SKU' => 'part_number',
+        'Name' => 'description',
+        'Type' => 'type_label',
+        'Category' => 'category',
+        'Quantity' => 'quantity',
+        'Reorder Level' => 'reorder_level',
+        'Unit Price' => 'unit_price',
+        'Location' => 'storage_facility',
+        'Equipment System' => 'equipment_system',
+        'Is Critical' => 'is_critical',
+        'Date Purchased' => 'date_purchased',
+        'Service Life (yrs)' => 'service_life_yrs',
+        'EUL (yrs)' => 'eul_yrs',
+        'Replacement Frequency' => 'replacement_frequency',
+        'Notes' => 'remarks',
     ];
+
+    /** Canonical keys that must be present in any valid file. */
+    private const REQUIRED_KEYS = ['part_number', 'description'];
 
     /**
      * Read sheet 1 of an xlsx and return associative rows keyed by canonical names.
+     *
+     * Auto-detects whether row 1 is a banner (original format) or the header row
+     * (export format) by checking if any cell matches a known header label.
      *
      * @return array<int, array<string, mixed>>
      *
@@ -66,12 +91,18 @@ class ItemsXlsxParser
                         $row->toArray(),
                     );
 
-                    // Row 1 is the banner ("CRITICAL SPARE PARTS INVENTORY"); row 2 is the header.
                     if ($rowIndex === 1) {
+                        if ($this->looksLikeHeader($cells)) {
+                            // Export format: row 1 is the header, no banner.
+                            $headerKeys = $this->resolveHeaderKeys($cells);
+                        }
+
+                        // Original format: row 1 is the banner — skip it.
                         continue;
                     }
 
-                    if ($rowIndex === 2) {
+                    if ($headerKeys === null) {
+                        // Original format: row 2 is the header.
                         $headerKeys = $this->resolveHeaderKeys($cells);
 
                         continue;
@@ -93,6 +124,24 @@ class ItemsXlsxParser
     }
 
     /**
+     * Returns true when at least one cell matches a recognized header label,
+     * meaning row 1 is a header row rather than a banner.
+     *
+     * @param  array<int, mixed>  $cells
+     */
+    private function looksLikeHeader(array $cells): bool
+    {
+        foreach ($cells as $cell) {
+            $label = is_string($cell) ? $cell : '';
+            if ($label !== '' && isset(self::HEADERS[$label])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  array<int, mixed>  $cells
      * @return array<int, ?string>
      *
@@ -111,7 +160,7 @@ class ItemsXlsxParser
             }
         }
 
-        $missing = array_diff(array_values(self::HEADERS), array_keys($found));
+        $missing = array_diff(self::REQUIRED_KEYS, array_keys($found));
         if (! empty($missing)) {
             throw new InvalidXlsxException(
                 'Header row is missing required columns: '.implode(', ', $missing),

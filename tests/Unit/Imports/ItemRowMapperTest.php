@@ -3,11 +3,14 @@
 namespace Tests\Unit\Imports;
 
 use App\Imports\ItemRowMapper;
-use App\Models\Item;
-use PHPUnit\Framework\TestCase;
+use App\Models\ItemType;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class ItemRowMapperTest extends TestCase
 {
+    use RefreshDatabase;
+
     private ItemRowMapper $mapper;
 
     protected function setUp(): void
@@ -18,6 +21,8 @@ class ItemRowMapperTest extends TestCase
 
     public function test_maps_a_complete_row(): void
     {
+        $sparePartId = ItemType::where('label', 'Spare Part')->value('id');
+
         $result = $this->mapper->map([
             'description' => 'Temperature Sensor, Overmolded',
             'vendor' => 'Trane',
@@ -51,7 +56,7 @@ class ItemRowMapperTest extends TestCase
         $this->assertSame('STT FV', $a['location']);
         $this->assertSame('2024-03-01', $a['date_purchased']);
         $this->assertSame(10, $a['service_life_yrs']);
-        $this->assertSame(Item::TYPE_SPARE_PART, $a['type']);
+        $this->assertSame($sparePartId, $a['item_type_id']);
     }
 
     public function test_missing_part_number_returns_error_and_null_attributes(): void
@@ -132,5 +137,41 @@ class ItemRowMapperTest extends TestCase
 
         $this->assertSame('HVAC', $result['attributes']['category']);
         $this->assertSame('HVAC', $result['attributes']['equipment_system']);
+    }
+
+    public function test_explicit_type_label_resolves_to_correct_item_type_id(): void
+    {
+        $toolId = ItemType::where('label', 'Tool')->value('id');
+
+        $result = $this->mapper->map([
+            'description' => 'Wrench',
+            'part_number' => 'WRN001',
+            'type_label' => 'Tool',
+        ]);
+
+        $this->assertSame($toolId, $result['attributes']['item_type_id']);
+    }
+
+    public function test_unit_price_is_mapped_from_export_format(): void
+    {
+        $result = $this->mapper->map([
+            'description' => 'Foo',
+            'part_number' => 'SKU7',
+            'unit_price' => '149.99',
+        ]);
+
+        $this->assertSame(149.99, $result['attributes']['unit_price']);
+    }
+
+    public function test_explicit_category_takes_precedence_over_equipment_system(): void
+    {
+        $result = $this->mapper->map([
+            'description' => 'Foo',
+            'part_number' => 'SKU8',
+            'category' => 'Sensors',
+            'equipment_system' => 'Chiller',
+        ]);
+
+        $this->assertSame('Sensors', $result['attributes']['category']);
     }
 }

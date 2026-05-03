@@ -57,6 +57,12 @@ class ItemRowMapper
 
         $equipmentSystem = $this->str($row['equipment_system'] ?? null);
 
+        // Resolve item_type_id: prefer explicit type label (export format), fall back to Spare Part.
+        $typeLabel = $this->str($row['type_label'] ?? null);
+        $itemTypeId = $typeLabel
+            ? (ItemType::where('label', $typeLabel)->value('id') ?? ItemType::orderBy('id')->value('id'))
+            : (ItemType::where('label', 'Spare Part')->value('id') ?? ItemType::orderBy('id')->value('id'));
+
         $attrs = [
             'name' => $name,
             'vendor' => $this->str($row['vendor'] ?? null),
@@ -67,11 +73,11 @@ class ItemRowMapper
             'uom' => $this->str($row['uom'] ?? null),
             'install_remarks' => $this->str($row['install_remarks'] ?? null),
             'sku' => $sku,
-            'item_type_id' => ItemType::where('label', 'Spare Part')->value('id')
-                ?? ItemType::orderBy('id')->value('id'),
-            'category' => $equipmentSystem,
+            'item_type_id' => $itemTypeId,
+            'category' => $this->str($row['category'] ?? null) ?? $equipmentSystem,
             'quantity' => $quantity,
             'reorder_level' => $reorder,
+            'unit_price' => $this->parseFloat($row['unit_price'] ?? null) ?? 0,
             'leadtime' => $this->str($row['leadtime'] ?? null),
             'location' => $this->str($row['storage_facility'] ?? null),
             'date_purchased' => $this->parseDate($row['date_purchased'] ?? null),
@@ -133,6 +139,19 @@ class ItemRowMapper
         }
 
         return (int) $s;
+    }
+
+    private function parseFloat(mixed $v): ?float
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (is_float($v) || is_int($v)) {
+            return (float) $v;
+        }
+        $s = trim((string) $v);
+
+        return is_numeric($s) ? (float) $s : null;
     }
 
     private function parseBool(mixed $v): bool
