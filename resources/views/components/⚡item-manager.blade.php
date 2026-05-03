@@ -2,6 +2,7 @@
 
 use App\Models\Item;
 use App\Models\ItemType;
+use Illuminate\Support\Facades\URL;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -59,6 +60,8 @@ new class extends Component
     public string $search = '';
 
     public string $filterType = '';
+
+    public int $perPage = 10;
 
     public string $sortField = 'name';
 
@@ -157,6 +160,12 @@ new class extends Component
         $this->reset('selectedIds', 'selectAll');
     }
 
+    public function updatingPerPage(): void
+    {
+        $this->resetPage();
+        $this->reset('selectedIds', 'selectAll');
+    }
+
     public function create(): void
     {
         $this->resetForm();
@@ -227,7 +236,20 @@ new class extends Component
             }))
             ->when($this->filterType, fn ($q) => $q->where('item_type_id', $this->filterType))
             ->orderBy($this->sortField, $this->sortDirection)
-            ->paginate(10);
+            ->paginate($this->perPage === 0 ? PHP_INT_MAX : $this->perPage);
+    }
+
+    #[Computed]
+    public function exportUrl(): string
+    {
+        if (! empty($this->selectedIds)) {
+            return URL::signedRoute('items.export', ['ids' => implode(',', $this->selectedIds)]);
+        }
+
+        return URL::signedRoute('items.export', [
+            'search' => $this->search,
+            'filter_type' => $this->filterType,
+        ]);
     }
 }; ?>
 
@@ -244,6 +266,17 @@ new class extends Component
                 <label class="block text-xs font-medium text-gray-600">Search</label>
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Name, SKU, category..."
                        class="mt-1 block w-64 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600">Rows per page</label>
+                <select wire:model.live="perPage"
+                        class="mt-1 block w-28 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border px-3 py-2">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="0">All</option>
+                </select>
             </div>
             <div>
                 <div class="flex items-baseline gap-2">
@@ -277,6 +310,17 @@ new class extends Component
                     Delete selected ({{ count($selectedIds) }})
                 </button>
             @endif
+            <a href="{{ $this->exportUrl }}"
+               class="inline-flex items-center gap-1.5 border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-md shadow">
+                <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                @if (count($selectedIds) > 0)
+                    Export selected ({{ count($selectedIds) }})
+                @else
+                    Export all
+                @endif
+            </a>
             <button wire:click="create"
                     class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-md shadow">
                 + New Item

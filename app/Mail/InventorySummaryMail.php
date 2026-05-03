@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Item;
+use App\Models\ItemType;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -16,20 +17,23 @@ class InventorySummaryMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Inventory Summary — ' . now()->format('Y-m-d'),
+            subject: 'Inventory Summary — '.now()->format('Y-m-d'),
         );
     }
 
     public function content(): Content
     {
-        $items = Item::orderBy('type')->orderBy('name')->get();
+        $items = Item::with('itemType')->orderBy('name')->get();
+
+        $sparePartId = ItemType::where('label', 'Spare Part')->value('id');
+        $toolId = ItemType::where('label', 'Tool')->value('id');
 
         return new Content(
             markdown: 'mail.inventory-summary',
             with: [
                 'totalItems' => $items->count(),
-                'totalSpareParts' => $items->where('type', Item::TYPE_SPARE_PART)->count(),
-                'totalTools' => $items->where('type', Item::TYPE_TOOL)->count(),
+                'totalSpareParts' => $items->where('item_type_id', $sparePartId)->count(),
+                'totalTools' => $items->where('item_type_id', $toolId)->count(),
                 'lowStockItems' => $items->filter(fn ($i) => $i->is_low_stock)->values(),
                 'totalValue' => $items->sum(fn ($i) => $i->quantity * (float) $i->unit_price),
                 'items' => $items,
